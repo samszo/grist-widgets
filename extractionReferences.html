@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <!-- Inclusion de l'API officielle Grist -->
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 10px; background: #f9f9f9; }
+    button { padding: 8px 12px; background: #00bf73; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #009e5f; }
+    #status { margin-top: 10px; font-size: 14px; color: #555; }
+  </style>
+</head>
+<body>
+
+  <h4>Extraction des ORCID</h4>
+  <button id="compare-btn">Lancer l'extraction</button>
+  <div id="status">En attente...</div>
+
+  <script>
+    // Initialise l'API Grist
+    grist.ready({
+      requiredAccess: 'full'
+    });
+
+    document.getElementById('compare-btn').addEventListener('click', async () => {
+      const statusDiv = document.getElementById('status');
+      statusDiv.innerText = "Extraction en cours...";
+
+      try {
+        // 1. Récupération des données des tables (Remplacez par vos IDs réels de tables)
+        const tableOrcid = await grist.docApi.fetchTable('ListeOrcid');
+        const tableIdRef = await grist.docApi.fetchTable('ListeIdref');
+        const tableIdHal = await grist.docApi.fetchTable('ListeIdHal');
+        const tableMembre = await grist.docApi.fetchTable('MembresParagraphe');
+        const tableMembreLabo = await grist.docApi.fetchTable('ListeMembreLabo');
+        // Listes pour stocker les IDs et les valeurs à mettre à jour
+        const rowIds = [];
+        const newValues = {
+          resultat: [],
+          orcid: [],
+          idRef: [],
+          idHal: [],
+          lienOmk: [],
+          idOmk: []
+        };
+        
+        // 2. Indexation des Tables par sa clé pour une recherche rapide
+        const mapTableOrcid = {};
+        for (let i = 0; i < tableOrcid.id.length; i++) {
+          const cleOrcid = tableOrcid.idOmk[i];
+          mapTableOrcid[cleOrcid] = tableOrcid.orcid[i];
+        }
+        const mapTableIdref = {};
+        for (let i = 0; i < tableIdRef.id.length; i++) {
+          const cle = tableIdRef.idOmk[i];
+          mapTableIdref[cle] = tableIdRef.idref[i];
+        }
+        const mapTableIdHal = {};
+        for (let i = 0; i < tableIdHal.id.length; i++) {
+          const cle = tableIdHal.idOmk[i];
+          mapTableIdHal[cle] = tableIdHal.idHal[i];
+        }
+
+        const mapTableOmk = {};
+        for (let i = 0; i < tableMembreLabo.id.length; i++) {
+          const cle = tableMembreLabo.nom[i];
+          mapTableOmk[cle] = {'labo':tableMembreLabo.labo[i],'idOmkLabo':tableMembreLabo.idOmkLabo[i],'idOmkMembre':tableMembreLabo.idOmkMembre[i]};
+        }
+
+        // 3. Comparaison et préparation des mises à jour pour la Table A
+        const recordsToUpdate = [];
+
+        for (let i = 0; i < tableMembre.id.length; i++) {
+          const idMembre = tableMembre.id[i];
+          const cleMembre = tableMembre.prenom[i]+" "+tableMembre.nom[i];
+          let orcidMembre = "no",
+            idRefMembre = "no",
+            idHalMembre = "no",
+            idOmkMembre = "no",
+            omkMembre = "no",
+            resultat = "OMK No";
+          if (cleMembre in mapTableOmk) {
+            let o = mapTableOmk[cleMembre];
+            resultat = "OMK OK";
+            omkMembre = "https://valorisation.humanum-p8.fr/admin/item/"+o.idOmkMembre;
+            idOmkMembre = o.idOmkMembre;
+
+            resultat += " - ";
+            if (idOmkMembre in mapTableOrcid) {
+              orcidMembre = mapTableOrcid[idOmkMembre].substr(6);
+              resultat += "Orcid OK";
+            }else resultat += "Orcid No"; 
+
+            resultat += " - ";          
+            if (idOmkMembre in mapTableIdref) {
+              idRefMembre = mapTableIdref[idOmkMembre].substr(6);
+              resultat += "idRef OK";
+            }else resultat += "idRef No";
+  
+            resultat += " - ";          
+            if (idOmkMembre in mapTableIdHal) {
+              idHalMembre = mapTableIdHal[idOmkMembre].substr(7);
+              resultat += "idHal OK";
+            }else resultat += "idHal No";
+
+          } 
+          rowIds.push(idMembre);
+          newValues.resultat.push(resultat);
+          newValues.lienOmk.push(omkMembre);            
+          newValues.idOmk.push(idOmkMembre);            
+          newValues.orcid.push(orcidMembre);
+          newValues.idRef.push(idRefMembre);
+          newValues.idHal.push(idHalMembre);
+        }
+        
+      // 4. Envoi de l'action en lot à Grist (Bulk Update)
+      if (rowIds.length > 0) {
+        await grist.docApi.applyUserActions([
+          [
+            "BulkUpdateRecord", // Action pour mettre à jour plusieurs lignes en une fois
+            "MembresParagraphe",           // L'identifiant technique de votre Table A
+            rowIds,             // Tableau des IDs des lignes à modifier [id1, id2, ...]
+            newValues
+          ]
+        ]);
+        statusDiv.innerText = `${rowIds.length} ligne(s) mise(s) à jour avec succès !`;
+      } else {
+        statusDiv.innerText = "Toutes les lignes sont déjà à jour. Aucune différence trouvée.";
+      }
+
+      } catch (error) {
+        statusDiv.innerText = "Erreur : " + error.message;
+        console.error(error);
+      }
+    });
+  </script>
+</body>
+</html>
